@@ -306,7 +306,7 @@ else ifeq ($(platform), vita)
 else ifeq ($(platform), emscripten)
    TARGET := $(TARGET_NAME)_libretro_emscripten.bc
    fpic := -fPIC
-   SHARED := -shared -s TOTAL_MEMORY=67108864
+   SHARED := -shared -Wl
    STATIC_LINKING = 1
    COMMONFLAGS += -DHAVE_TIME_T_IN_TIME_H
 
@@ -448,9 +448,7 @@ all: $(TARGET)
 -include $(OBJECTS:.o=.d))
 
 $(TARGET): $(OBJECTS)
-ifeq ($(platform), emscripten)
-	$(CXX) -r $(SHARED) -o $@ $(OBJECTS) $(LDFLAGS)
-else ifeq ($(STATIC_LINKING), 1)
+ifeq ($(STATIC_LINKING), 1)
 	$(AR) rcs $@ $(OBJECTS)
 #STATIC_LINKING=1 and additional Makefile.common sources are incompatible for PS3 environment
 else ifeq ($(platform), ps3)
