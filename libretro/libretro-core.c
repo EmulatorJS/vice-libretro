@@ -186,7 +186,7 @@ unsigned int opt_jiffydos_kernal_skip = 0;
 #if defined(__XSCPU64__)
 unsigned int opt_supercpu_kernal = 0;
 #endif
-static unsigned int sound_volume_counter = 3;
+static unsigned int sound_volume_counter = 5;
 bool sound_drive_mute = false;
 unsigned int opt_audio_leak_volume = 0;
 int opt_datasette_sound_volume = 0;
@@ -434,7 +434,7 @@ static void toggle_tde(int on)
 void sound_volume_counter_reset()
 {
    resources_set_int("SoundVolume", 0);
-   sound_volume_counter = 3;
+   sound_volume_counter = 5;
 }
 
 #if defined(__XVIC__)
@@ -2130,7 +2130,7 @@ bool audio_playing(void)
    static unsigned int audio_timer_stopped = 0;
    bool audio_alive = false;
 
-   if (audio_is_ignored)
+   if (audio_is_ignored || sound_volume_counter)
    {
       audio_is_playing = false;
       return audio_is_playing;
@@ -2732,7 +2732,7 @@ static void retro_set_core_options()
             { "enabled", NULL },
             { NULL, NULL },
          },
-         "enabled"
+         "disabled"
       },
 #endif
       {
@@ -3339,15 +3339,19 @@ static void retro_set_core_options()
          "vice_gfx_colors",
          "Video > Color Depth",
          "Color Depth",
-         "24-bit is slower and not available on all platforms. Full restart required.",
+         "Full restart required.",
          NULL,
          "video",
          {
-            { "16bit", "Thousands (16-bit)" },
-            { "24bit", "Millions (24-bit)" },
+            { "16bit", "16-bit (RGB565)" },
+            { "24bit", "24-bit (XRGB8888)" },
             { NULL, NULL },
          },
+#if defined(__X64__) || defined(PSP) || defined(VITA) || defined(__SWITCH__) || defined(DINGUX) || defined(ANDROID)
          "16bit"
+#else
+         "24bit"
+#endif
       },
       {
          "vice_vkbd_theme",
@@ -5533,6 +5537,10 @@ static void update_variables(void)
       if (retro_ui_finalized && vice_opt.DriveSoundEmulation && vice_opt.DriveTrueEmulation &&
           (!(opt_autoloadwarp & AUTOLOADWARP_DISK) && !(opt_autoloadwarp & AUTOLOADWARP_MUTE)))
          resources_set_int("DriveSoundEmulationVolume", vice_opt.DriveSoundEmulation);
+
+      /* Also enable AutostartWarp for faster startup */
+      if (opt_autoloadwarp)
+         vice_opt.AutostartWarp = 1;
 
 #if !defined(__XSCPU64__) && !defined(__X64DTV__)
       /* Silently restore tape sounds when autoloadwarp is disabled */
