@@ -6,6 +6,8 @@ SOURCES_CXX :=
 OBJECTS     :=
 SILENT      := 0
 
+EMULATORJS_THREADS ?= 0
+
 ifeq ($(platform),)
 platform = unix
 ifeq ($(shell uname -s),)
@@ -309,6 +311,11 @@ else ifeq ($(platform), emscripten)
    SHARED := -shared -Wl
    STATIC_LINKING = 1
    COMMONFLAGS += -DHAVE_TIME_T_IN_TIME_H
+   ifeq ($(EMULATORJS_THREADS), 1)
+      LDFLAGS += -pthread
+      CXXFLAGS += -pthread
+      PLATCFLAGS += -pthread
+   endif
 
 # Wii
 else ifeq ($(platform), wii)
