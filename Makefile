@@ -313,6 +313,7 @@ else ifeq ($(platform), emscripten)
    COMMONFLAGS += -DHAVE_TIME_T_IN_TIME_H
    ifeq ($(EMULATORJS_THREADS), 1)
       LDFLAGS += -pthread
+      CFLAGS += -pthread
       CXXFLAGS += -pthread
    endif
 
