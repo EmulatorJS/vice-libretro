@@ -314,7 +314,6 @@ else ifeq ($(platform), emscripten)
    ifeq ($(EMULATORJS_THREADS), 1)
       LDFLAGS += -pthread
       CXXFLAGS += -pthread
-      PLATCFLAGS += -pthread
    endif
 
 # Wii
