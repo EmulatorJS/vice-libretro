@@ -41,31 +41,41 @@
 #include "plus4rom.h"
 #include "plus4memrom.h"
 
+#include "ted_colodore_ted_vpl.h"
+#include "ted_ITU_R_BT601_CRT_vpl.h"
+#include "ted_ITU_R_BT709_HDTV_vpl.h"
+#include "ted_ITU_R_BT2020_vpl.h"
 #include "ted_yape_pal_vpl.h"
 #include "ted_yape_ntsc_vpl.h"
-#include "ted_colodore_ted_vpl.h"
 
+#include "plus4basic.h"
+#include "plus4kernal.h"
 #include "plus4kernal005.h"
 #include "plus4kernal232.h"
 #include "plus4kernal364.h"
+#include "plus43plus1hi.h"
+#include "plus43plus1lo.h"
 #include "plus4c2lo364.h"
 
 static embedded_t plus4files[] = {
-    { PLUS4_BASIC_NAME, PLUS4_BASIC_ROM_SIZE, PLUS4_BASIC_ROM_SIZE, PLUS4_BASIC_ROM_SIZE, plus4memrom_basic_rom },
-    { PLUS4_KERNAL_PAL_REV5_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4memrom_kernal_rom },
-    { PLUS4_3PLUS1LO_NAME, PLUS4_BASIC_ROM_SIZE, PLUS4_BASIC_ROM_SIZE, PLUS4_BASIC_ROM_SIZE, extromlo1 },
-    { PLUS4_3PLUS1HI_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, extromhi1 },
-    { PLUS4_KERNAL_NTSC_REV5_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4memrom_kernal005_rom },
-    { PLUS4_KERNAL_NTSC_REV1_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4memrom_kernal232_rom },
-    { PLUS4_KERNAL_NTSC_364_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4memrom_kernal364_rom },
-    { PLUS4_C2LO_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4memrom_c2lo364_rom },
+    { PLUS4_BASIC_NAME, PLUS4_BASIC_ROM_SIZE, PLUS4_BASIC_ROM_SIZE, PLUS4_BASIC_ROM_SIZE, plus4_basic_rom },
+    { PLUS4_KERNAL_PAL_REV5_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4_kernal_rom },
+    { PLUS4_3PLUS1LO_NAME, PLUS4_BASIC_ROM_SIZE, PLUS4_BASIC_ROM_SIZE, PLUS4_BASIC_ROM_SIZE, plus4_3plus1lo_rom },
+    { PLUS4_3PLUS1HI_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4_3plus1hi_rom },
+    { PLUS4_KERNAL_NTSC_REV5_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4_kernal005_rom },
+    { PLUS4_KERNAL_NTSC_REV1_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4_kernal232_rom },
+    { PLUS4_KERNAL_NTSC_364_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4_kernal364_rom },
+    { PLUS4_C2LO_NAME, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, PLUS4_KERNAL_ROM_SIZE, plus4_c2lo364_rom },
     EMBEDDED_LIST_END
 };
 
 static embedded_palette_t palette_files[] = {
+    { "colodore_ted", "colodore_ted.vpl", 128, ted_colodore_ted_vpl },
+    { "ITU-R_BT601_CRT", "ITU-R_BT601_CRT.vpl", 128, ted_ITU_R_BT601_CRT_vpl },
+    { "ITU-R_BT709_HDTV", "ITU-R_BT709_HDTV.vpl", 128, ted_ITU_R_BT709_HDTV_vpl },
+    { "ITU-R_BT2020", "ITU-R_BT2020.vpl", 128, ted_ITU_R_BT2020_vpl },
     { "yape-pal", "yape-pal.vpl", 128, ted_yape_pal_vpl },
     { "yape-ntsc", "yape-ntsc.vpl", 128, ted_yape_ntsc_vpl },
-    { "colodore_ted", "colodore_ted.vpl", 128, ted_colodore_ted_vpl },
     EMBEDDED_PALETTE_LIST_END
 };
 

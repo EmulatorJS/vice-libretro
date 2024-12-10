@@ -55,6 +55,8 @@ extern unsigned int opt_joyport_type;
 extern unsigned int opt_autoloadwarp;
 extern int RGBc(int r, int g, int b);
 extern bool retro_statusbar;
+extern bool retro_capslock;
+extern bool c128_capslock;
 extern float retro_refresh;
 extern int runstate;
 extern dc_storage *dc;
@@ -587,21 +589,11 @@ static void display_joyport(void)
         snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "J%d%3s ", 3, joystick_value_human(get_joystick_value(3-1), 0));
         snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "J%d%3s ", 4, joystick_value_human(get_joystick_value(4-1), 0));
     }
-    else
-    {
-        snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%5s", "");
-        snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%5s", "");
-    }
 #elif defined(__XVIC__)
     if (vice_opt.UserportJoyType != -1)
     {
         snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "J%d%3s ", 2, joystick_value_human(get_joystick_value(2-1), 0));
         snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "J%d%3s ", 3, joystick_value_human(get_joystick_value(3-1), 0));
-    }
-    else
-    {
-        snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%5s", "");
-        snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%5s", "");
     }
 #elif defined(__XPET__) || defined(__XCBM2__)
     if (vice_opt.UserportJoyType != -1)
@@ -609,12 +601,33 @@ static void display_joyport(void)
         snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "J%d%3s ", 1, joystick_value_human(get_joystick_value(1-1), 0));
         snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "J%d%3s ", 2, joystick_value_human(get_joystick_value(2-1), 0));
     }
-    else
-    {
-        snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%5s", "");
-        snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%5s", "");
-    }
 #endif
+
+    if (vice_opt.UserportJoyType == -1)
+    {
+        int offset_multi = ceil((retrow - retrow_crop + 8) / 16.0f);
+        int offset = 7 - offset_multi;
+
+        for (int i = 0; i < offset + 1; i++)
+            snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%1s", "");
+
+#if defined(__X128__)
+        snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%2s %2s", "CL", "SL");
+
+        if (c128_capslock)
+        {
+            tmpstr[6+6+offset+1] |= 0x80;
+            tmpstr[6+6+offset+2] |= 0x80;
+        }
+#else
+        snprintf(tmpstr + strlen(tmpstr), sizeof(tmpstr), "%2s %2s", "  ", "SL");
+#endif
+        if (retro_capslock)
+        {
+            tmpstr[6+6+offset+3+1] |= 0x80;
+            tmpstr[6+6+offset+3+2] |= 0x80;
+        }
+    }
 
     if (opt_statusbar & STATUSBAR_BASIC)
         snprintf(tmpstr, sizeof(tmpstr), "%24s", "");
@@ -719,7 +732,7 @@ static void display_joyport(void)
     /* Memory */
     unsigned memory = 0;
     const char *memory_unit = "K";
-    memory = (vic20mem_forced > -1) ? vic20mem_forced : vice_opt.VIC20Memory;
+    memory = (vic20mem_forced > -1) ? vic20mem_forced : (vice_opt.VIC20Memory > -1) ? vice_opt.VIC20Memory : 0;
     if (!memory && vice_opt.Model == VIC20MODEL_VIC21)
         memory = 3;
 
@@ -835,7 +848,7 @@ void uistatusbar_draw(void)
         led_width += LED_WIDTH(4) - char_scale_x;
 
     /* LED horizontal start */
-    led_x = retrow_crop - led_width + char_scale_x - 1;
+    led_x = retroXS_crop_offset + retrow_crop - led_width + char_scale_x - 1;
 
     /* Basic mode statusbar background */
     if (opt_statusbar & STATUSBAR_BASIC && !statusbar_message_timer)

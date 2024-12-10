@@ -376,8 +376,23 @@ static int cmdline_attach(const char *param, void *extra_param)
     return 0;
 }
 
+#ifdef WINDOWS_COMPILE
+static int cmdline_no_redirect_streams(const char *param, void *extra_param)
+{
+    /* "-no-redirect-streams" is handled at the start of main()
+       but it also needs to be registered as a cmdline option,
+       hence this kludge. */
+    return 0;
+}
+#endif
+
 static const cmdline_option_t common_cmdline_options[] =
 {
+#ifdef WINDOWS_COMPILE
+    { "-no-redirect-streams", CALL_FUNCTION, CMDLINE_ATTRIB_NONE,
+      cmdline_no_redirect_streams, NULL, NULL, NULL,
+      NULL, "Do not redirect stdin/stdout to the console" },
+#endif
     { "-help", CALL_FUNCTION, CMDLINE_ATTRIB_NONE,
       cmdline_help, NULL, NULL, NULL,
       NULL, "Show a list of the available options and exit normally" },
@@ -621,24 +636,22 @@ const char* cmdline_get_autostart_string(void)
     return autostart_string;
 }
 
-int initcmdline_cleanup()
+void initcmdline_cleanup(bool set_defaults)
 {
-    cmdline_free_autostart_string();
+    if (!set_defaults)
+        cmdline_free_autostart_string();
 
-    /* Detach all tapes and disks from previous content */
-    tape_image_detach(1);
+    /* Detach everything */
+    cartridge_unset_default();
     cartridge_detach_image(-1);
-    file_system_detach_disk(8, 0);
+    tape_image_detach_all();
+    file_system_detach_disk_all();
     file_system_detach_disk_shutdown();
 
-    /* Detach cartridge and reset default name */
-    if (resources_query_type("CartridgeFile") == RES_STRING) {
-        resources_set_string("CartridgeFile", "");
-    }
-
-    /* Reset resources to defaults */
-    resources_set_defaults();
-    resources_reset_and_load(NULL);
+    /* Reset resources to defaults and reload */
+    if (set_defaults)
+        resources_set_defaults();
+    resources_load(NULL);
 }
 
 int initcmdline_restart(int argc, char **argv)
