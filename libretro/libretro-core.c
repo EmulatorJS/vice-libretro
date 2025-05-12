@@ -46,6 +46,7 @@
 /* Main CPU loop */
 long retro_now = 0;
 unsigned retro_renderloop = 1;
+bool retro_sound_keep_alive = false;
 
 /* VKBD */
 extern bool retro_vkbd;
@@ -196,7 +197,8 @@ static bool opt_reu_allow = true;
 #if defined(__XSCPU64__)
 unsigned int opt_supercpu_kernal = 0;
 #endif
-static unsigned int sound_volume_counter = 5;
+#define SOUND_VOLUME_COUNTER 10
+static unsigned int sound_volume_counter = SOUND_VOLUME_COUNTER;
 bool sound_drive_mute = false;
 unsigned int opt_audio_leak_volume = 0;
 int opt_datasette_sound_volume = 0;
@@ -207,6 +209,7 @@ bool opt_keyboard_pass_through = false;
 unsigned int opt_keyboard_keymap = KBD_INDEX_POS;
 unsigned int opt_retropad_options = RETROPAD_OPTIONS_DISABLED;
 unsigned int opt_joyport_type = 0;
+bool opt_joyport_paddles_split = true;
 int opt_joyport_pointer_color = -1;
 unsigned int opt_dpadmouse_speed = 6;
 unsigned int opt_mouse_speed = 100;
@@ -443,7 +446,7 @@ static void toggle_tde(int on)
 void sound_volume_counter_reset(void)
 {
    resources_set_int("SoundVolume", 0);
-   sound_volume_counter = 5;
+   sound_volume_counter = SOUND_VOLUME_COUNTER;
 }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X128__)
@@ -823,6 +826,19 @@ static int process_cmdline(const char* argv)
             case 1: /* Generated playlist */
                zip_m3u = fopen(zip_m3u_list.path, "w");
                qsort(zip_m3u_list.list, zip_m3u_list.num, RETRO_PATH_MAX, qstrcmp);
+
+               /* Flip memory image first if last */
+               if (     dc_get_image_type(zip_m3u_list.list[0]) != DC_IMAGE_TYPE_MEM
+                     && dc_get_image_type(zip_m3u_list.list[zip_m3u_list.num - 1]) == DC_IMAGE_TYPE_MEM)
+               {
+                  for (int l = zip_m3u_list.num; l > -1; l--)
+                  {
+                     int k = l + 1;
+                     strlcpy(zip_m3u_list.list[k], zip_m3u_list.list[l], sizeof(zip_m3u_list.list[l]));
+                  }
+                  strlcpy(zip_m3u_list.list[0], zip_m3u_list.list[zip_m3u_list.num], sizeof(zip_m3u_list.list[0]));
+               }
+
                for (int l = 0; l < zip_m3u_list.num; l++)
                   fprintf(zip_m3u, "%s\n", zip_m3u_list.list[l]);
                fclose(zip_m3u);
@@ -864,6 +880,20 @@ static int process_cmdline(const char* argv)
          path_remove_extension(reu_name);
 
          snprintf(reu_path, sizeof(reu_path), "%s%s%s", reu_base, reu_name, ".reu");
+
+         /* Scan differently named REU in TEMP */
+         if (!path_is_valid(reu_path) && strstartswith(argv, retro_temp_directory))
+         {
+            DIR *reu_dir;
+            struct dirent *reu_dirp;
+            reu_dir = opendir(retro_temp_directory);
+            while ((reu_dirp = readdir(reu_dir)) != NULL)
+            {
+               if (strendswith(reu_dirp->d_name, ".reu"))
+                  snprintf(reu_path, sizeof(reu_path), "%s%s%s", retro_temp_directory, ARCHDEP_DIR_SEP_STR, reu_dirp->d_name);
+            }
+            closedir(reu_dir);
+         }
 
          if (path_is_valid(reu_path))
          {
@@ -1001,10 +1031,10 @@ static int process_cmdline(const char* argv)
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
 
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "-2000", strlen("-2000"), "", strlen("")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "-4000", strlen("-4000"), "", strlen("")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "-6000", strlen("-6000"), "", strlen("")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "-a000", strlen("-a000"), "", strlen("")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "-2000", strlen("-2000"), "", strlen("")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "-4000", strlen("-4000"), "", strlen("")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "-6000", strlen("-6000"), "", strlen("")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "-a000", strlen("-a000"), "", strlen("")));
 
                         snprintf(cart_2000, sizeof(cart_2000), "%s%s%s", cart_base, "-2000", ".prg");
                         snprintf(cart_4000, sizeof(cart_4000), "%s%s%s", cart_base, "-4000", ".prg");
@@ -1015,60 +1045,60 @@ static int process_cmdline(const char* argv)
                      case CARTRIDGE_VIC20_CART_TOSEC: /* TOSEC */
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[4000]", strlen("[4000]"), "[2000]", strlen("[2000]")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[6000]", strlen("[6000]"), "[2000]", strlen("[2000]")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[A000]", strlen("[A000]"), "[2000]", strlen("[2000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[4000]", strlen("[4000]"), "[2000]", strlen("[2000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[6000]", strlen("[6000]"), "[2000]", strlen("[2000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[A000]", strlen("[A000]"), "[2000]", strlen("[2000]")));
                         snprintf(cart_2000, sizeof(cart_2000), "%s%s", cart_base, ".crt");
 
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[2000]", strlen("[2000]"), "[4000]", strlen("[4000]")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[6000]", strlen("[6000]"), "[4000]", strlen("[4000]")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[A000]", strlen("[A000]"), "[4000]", strlen("[4000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[2000]", strlen("[2000]"), "[4000]", strlen("[4000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[6000]", strlen("[6000]"), "[4000]", strlen("[4000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[A000]", strlen("[A000]"), "[4000]", strlen("[4000]")));
                         snprintf(cart_4000, sizeof(cart_4000), "%s%s", cart_base, ".crt");
 
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[2000]", strlen("[2000]"), "[6000]", strlen("[6000]")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[4000]", strlen("[4000]"), "[6000]", strlen("[6000]")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[A000]", strlen("[A000]"), "[6000]", strlen("[6000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[2000]", strlen("[2000]"), "[6000]", strlen("[6000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[4000]", strlen("[4000]"), "[6000]", strlen("[6000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[A000]", strlen("[A000]"), "[6000]", strlen("[6000]")));
                         snprintf(cart_6000, sizeof(cart_6000), "%s%s", cart_base, ".crt");
 
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[2000]", strlen("[2000]"), "[A000]", strlen("[A000]")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[4000]", strlen("[4000]"), "[A000]", strlen("[A000]")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "[6000]", strlen("[6000]"), "[A000]", strlen("[A000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[2000]", strlen("[2000]"), "[A000]", strlen("[A000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[4000]", strlen("[4000]"), "[A000]", strlen("[A000]")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "[6000]", strlen("[6000]"), "[A000]", strlen("[A000]")));
                         snprintf(cart_A000, sizeof(cart_A000), "%s%s", cart_base, ".crt");
                         break;
 
                      case CARTRIDGE_VIC20_CART_NOINTRO: /* No-Intro */
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$4000", strlen("$4000"), "$2000", strlen("$2000")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$6000", strlen("$6000"), "$2000", strlen("$2000")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$A000", strlen("$A000"), "$2000", strlen("$2000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$4000", strlen("$4000"), "$2000", strlen("$2000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$6000", strlen("$6000"), "$2000", strlen("$2000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$A000", strlen("$A000"), "$2000", strlen("$2000")));
                         snprintf(cart_2000, sizeof(cart_2000), "%s%s", cart_base, ".20");
 
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$2000", strlen("$2000"), "$4000", strlen("$4000")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$6000", strlen("$6000"), "$4000", strlen("$4000")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$A000", strlen("$A000"), "$4000", strlen("$4000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$2000", strlen("$2000"), "$4000", strlen("$4000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$6000", strlen("$6000"), "$4000", strlen("$4000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$A000", strlen("$A000"), "$4000", strlen("$4000")));
                         snprintf(cart_4000, sizeof(cart_4000), "%s%s", cart_base, ".40");
 
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$2000", strlen("$2000"), "$6000", strlen("$6000")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$4000", strlen("$4000"), "$6000", strlen("$6000")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$A000", strlen("$A000"), "$6000", strlen("$6000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$2000", strlen("$2000"), "$6000", strlen("$6000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$4000", strlen("$4000"), "$6000", strlen("$6000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$A000", strlen("$A000"), "$6000", strlen("$6000")));
                         snprintf(cart_6000, sizeof(cart_6000), "%s%s", cart_base, ".60");
 
                         snprintf(cart_base, sizeof(cart_base), "%s", argv);
                         path_remove_extension(cart_base);
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$2000", strlen("$2000"), "$A000", strlen("$A000")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$4000", strlen("$4000"), "$A000", strlen("$A000")));
-                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, "$6000", strlen("$6000"), "$A000", strlen("$A000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$2000", strlen("$2000"), "$A000", strlen("$A000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$4000", strlen("$4000"), "$A000", strlen("$A000")));
+                        snprintf(cart_base, sizeof(cart_base), "%s", string_replace_substring(cart_base, strlen(cart_base), "$6000", strlen("$6000"), "$A000", strlen("$A000")));
                         snprintf(cart_A000, sizeof(cart_A000), "%s%s", cart_base, ".a0");
                         break;
                   }
@@ -1196,6 +1226,8 @@ static int process_cmdline(const char* argv)
       {
          /* Some debugging */
          log_cb(RETRO_LOG_INFO, "M3U/VFL parsed, %d file(s) found\n", dc->count);
+         for (unsigned i = 0; i < dc->count; i++)
+            log_cb(RETRO_LOG_DEBUG, "File %d: %s\n", i+1, dc->files[i]);
 
          if (!dc->command)
          {
@@ -2359,9 +2391,6 @@ static void retro_set_paths(void)
    /* Use system directory for data files such as JiffyDOS and keymaps */
    snprintf(retro_system_data_directory, sizeof(retro_system_data_directory), "%s%s%s",
             retro_system_directory, ARCHDEP_DIR_SEP_STR, "vice");
-
-   if (retro_system_data_directory[0] != '.' && !path_is_directory(retro_system_data_directory))
-      archdep_mkdir(retro_system_data_directory, 0);
 }
 
 static void free_vice_carts(void)
@@ -3055,26 +3084,6 @@ static void retro_set_core_options()
          "enabled"
       },
       {
-         "vice_zoom_mode",
-         "Video > Zoom Mode",
-         "Zoom Mode",
-         "Hidden placeholder for backwards compatibility.",
-         NULL,
-         "video",
-         {
-            { "deprecated", NULL },
-            { "disabled", NULL },
-            { "small", "Small" },
-            { "medium", "Medium" },
-            { "maximum", "Maximum" },
-            { "auto", "Automatic" },
-            { "auto_disable", "Auto-Disable" },
-            { "manual", "Manual" },
-            { NULL, NULL },
-         },
-         "deprecated"
-      },
-      {
          "vice_crop_mode",
          "Video > Crop Mode",
          "Crop Mode",
@@ -3092,26 +3101,6 @@ static void retro_set_core_options()
             { NULL, NULL },
          },
          "both"
-      },
-      {
-         "vice_zoom_mode_crop",
-         "Video > Zoom Mode Crop",
-         "Zoom Mode Crop",
-         "Hidden placeholder for backwards compatibility.",
-         NULL,
-         "video",
-         {
-            { "deprecated", NULL },
-            { "both", "Horizontal + Vertical" },
-            { "horizontal", "Horizontal" },
-            { "vertical", "Vertical" },
-            { "16:9", "16:9" },
-            { "16:10", "16:10" },
-            { "4:3", "4:3" },
-            { "5:4", "5:4" },
-            { NULL, NULL },
-         },
-         "deprecated"
       },
       {
          "vice_manual_crop_top",
@@ -3200,7 +3189,7 @@ static void retro_set_core_options()
             { "enabled_medblur", "50%" },
             { "enabled", "100%" },
          },
-         "enabled_medblur"
+         "disabled"
       },
 #endif
       {
@@ -3231,11 +3220,7 @@ static void retro_set_core_options()
             { "enabled_medblur", "50%" },
             { "enabled", "100%" },
          },
-#if defined(__X64__) || defined(__XPET__) || defined(__XCBM2__) || defined(PSP) || defined(VITA) || defined(__SWITCH__) || defined(DINGUX) || defined(ANDROID)
          "disabled"
-#else
-         "enabled_medblur"
-#endif
       },
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__) || defined(__XVIC__) || defined(__XPLUS4__)
       {
@@ -3373,6 +3358,7 @@ static void retro_set_core_options()
             { "deekay", "Deekay/Crest" },
             { "frodo", "Frodo" },
             { "godot", "Godot" },
+            { "lemon64", "Lemon64" },
             { "palette", "PALette" },
             { "palette_6569R1_v1r", "PALette 6569R1" },
             { "palette_6569R5_v1r", "PALette 6569R5" },
@@ -4132,7 +4118,7 @@ static void retro_set_core_options()
          "vice_physical_keyboard_pass_through",
          "Input > Keyboard Pass-through",
          "Keyboard Pass-through",
-         "'ON' passes all physical keyboard events to the core. 'OFF' prevents RetroPad keys from generating keyboard events.",
+         "'ON' passes all physical keyboard events to the core. 'OFF' prevents RetroPad keys from generating keyboard events.\nNOTE: This is a legacy option for old frontends that do not block keyboard events when using RetroPad, so it does nothing with current RetroArch.",
          NULL,
          "input",
          {
@@ -4286,16 +4272,6 @@ static void retro_set_core_options()
          "Hotkey > Toggle Crop",
          "Toggle Crop",
          "Press the mapped key to toggle crop.",
-         NULL,
-         "hotkey",
-         {{ NULL, NULL }},
-         "---"
-      },
-      {
-         "vice_mapper_zoom_mode_toggle",
-         "Hotkey > Toggle Zoom Mode",
-         "Toggle Zoom Mode",
-         "Hidden placeholder for backwards compatibility.",
          NULL,
          "hotkey",
          {{ NULL, NULL }},
@@ -4726,12 +4702,13 @@ static void retro_set_core_options()
          "vice_joyport_type",
          "RetroPad > Joystick Port Type",
          "Joystick Port Type",
-         "Non-joysticks are plugged in current port only and are controlled with left analog stick or mouse. Paddles are split to 1st and 2nd RetroPort.",
+         "Non-joysticks are plugged in current port only and are controlled with left analog stick or mouse.",
          NULL,
          "input",
          {
             { "1", "Joystick" },
-            { "2", "Paddles" },
+            { "2", "Paddles (Split)" },
+            { "2R", "Paddles (Raw)" },
             { "3", "Mouse (1351)" },
             { "4", "Mouse (NEOS)" },
             { "5", "Mouse (Amiga)" },
@@ -5157,6 +5134,7 @@ error:
 
 static const struct retro_controller_description joyport_controllers[] =
 {
+   { "RetroPad", RETRO_DEVICE_JOYPAD },
    { "Joystick", RETRO_DEVICE_VICE_JOYSTICK },
    { "Keyboard", RETRO_DEVICE_VICE_KEYBOARD },
    { "None", RETRO_DEVICE_NONE },
@@ -5252,15 +5230,6 @@ void retro_set_options_display(void)
 
    option_display.visible = (crop_id == CROP_AUTO || crop_id == CROP_AUTO_DISABLE);
    option_display.key = "vice_crop_delay";
-   environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
-
-   /* Legacy zoom always hidden */
-   option_display.visible = false;
-   option_display.key = "vice_zoom_mode";
-   environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
-   option_display.key = "vice_zoom_mode_crop";
-   environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
-   option_display.key = "vice_mapper_zoom_mode_toggle";
    environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
 
    /*** Options display ***/
@@ -5520,19 +5489,13 @@ void retro_set_options_display(void)
 #endif
 }
 
-static bool updating_variables = false;
 static bool retro_update_display(void)
 {
-   if (updating_variables)
-      return false;
-
    /* Core options */
    bool updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
-   {
       update_variables();
-      retro_set_options_display();
-   }
+
    return updated;
 }
 
@@ -5599,19 +5562,21 @@ char* get_variable(const char* key)
    return NULL;
 }
 
+#define GET_VAR(x) \
+   var.key   = "vice_" x; \
+   var.value = NULL; \
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+
 static void update_variables(void)
 {
    struct retro_variable var = {0};
 
-   updating_variables = true;
 #ifdef RETRO_DEBUG
    log_cb(RETRO_LOG_INFO, "Updating variables, UI finalized = %d\n", retro_ui_finalized);
 #endif
 
-#if !defined(__XPET__)
-   var.key = "vice_cartridge";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__XPET__) && !defined(__X64DTV__)
+   GET_VAR("cartridge")
    {
       char cart_full[RETRO_PATH_MAX] = {0};
 
@@ -5642,9 +5607,8 @@ static void update_variables(void)
    }
 #endif
 
-   var.key = "vice_autostart";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__X64DTV__)
+   GET_VAR("autostart")
    {
       int autostartwarp = 0;
 
@@ -5664,10 +5628,10 @@ static void update_variables(void)
 
       vice_opt.AutostartWarp = autostartwarp;
    }
+#endif
 
-   var.key = "vice_autoloadwarp";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__X64DTV__)
+   GET_VAR("autoloadwarp")
    {
       opt_autoloadwarp = 0;
 
@@ -5691,32 +5655,30 @@ static void update_variables(void)
             resources_set_int("AutostartWarp", vice_opt.AutostartWarp);
       }
 
-#if !defined(__XSCPU64__) && !defined(__X64DTV__)
+#if !defined(__XSCPU64__)
       /* Silently restore tape sounds when autoloadwarp is disabled */
       if (retro_ui_finalized && vice_opt.DatasetteSound &&
           (!(opt_autoloadwarp & AUTOLOADWARP_TAPE) && !(opt_autoloadwarp & AUTOLOADWARP_MUTE)))
          resources_set_int("DatasetteSound", vice_opt.DatasetteSound);
 #endif
 
-#if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__) || defined(__XVIC__) || defined(__XPLUS4__)
+#if defined(__X64__) || defined(__X64SC__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__) || defined(__XVIC__) || defined(__XPLUS4__)
       /* Silently restore audio leak when autoloadwarp is disabled */
       if (retro_ui_finalized && vice_opt.AudioLeak &&
           (!opt_autoloadwarp || opt_autoloadwarp & AUTOLOADWARP_MUTE))
          resources_set_int(AUDIOLEAK_RESOURCE, vice_opt.AudioLeak);
 #endif
    }
+#endif
 
-   var.key = "vice_floppy_multidrive";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__X64DTV__)
+   GET_VAR("floppy_multidrive")
    {
       if (!strcmp(var.value, "disabled")) opt_floppy_multidrive = false;
       else                                opt_floppy_multidrive = true;
    }
 
-   var.key = "vice_floppy_write_protection";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("floppy_write_protection")
    {
       int readonly = 0;
 
@@ -5731,11 +5693,10 @@ static void update_variables(void)
 
       vice_opt.AttachDevice8Readonly = readonly;
    }
+#endif
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X128__)
-   var.key = "vice_easyflash_write_protection";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("easyflash_write_protection")
    {
       int writecrt = 0;
 
@@ -5749,9 +5710,8 @@ static void update_variables(void)
    }
 #endif
 
-   var.key = "vice_work_disk";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__X64DTV__)
+   GET_VAR("work_disk")
    {
       int work_disk_type = opt_work_disk_type;
       int work_disk_unit = opt_work_disk_unit;
@@ -5772,9 +5732,7 @@ static void update_variables(void)
          request_update_work_disk = true;
    }
 
-   var.key = "vice_virtual_device_traps";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("virtual_device_traps")
    {
       if (retro_ui_finalized)
       {
@@ -5801,11 +5759,10 @@ static void update_variables(void)
       if (!strcmp(var.value, "disabled")) vice_opt.VirtualDevices = 0;
       else                                vice_opt.VirtualDevices = 1;
    }
+#endif
 
-#if !defined(__XPET__) && !defined(__XPLUS4__) && !defined(__XVIC__)
-   var.key = "vice_warp_boost";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__XPET__) && !defined(__XPLUS4__) && !defined(__XVIC__) && !defined(__X64DTV__)
+   GET_VAR("warp_boost")
    {
       if (!strcmp(var.value, "disabled")) opt_warp_boost = 0;
       else                                opt_warp_boost = 1;
@@ -5813,9 +5770,7 @@ static void update_variables(void)
 #endif
 
 #if !defined(__X64DTV__)
-   var.key = "vice_drive_true_emulation";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("drive_true_emulation")
    {
       if (retro_ui_finalized && !tde_locked)
       {
@@ -5851,9 +5806,7 @@ static void update_variables(void)
 #endif
 
 #if !defined(__X64DTV__)
-   var.key = "vice_drive_sound_emulation";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("drive_sound_emulation")
    {
       int val = atoi(var.value) * 20;
 
@@ -5884,9 +5837,7 @@ static void update_variables(void)
 #endif
 
 #if !defined(__XSCPU64__) && !defined(__X64DTV__)
-   var.key = "vice_datasette_sound";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("datasette_sound")
    {
       int val = atoi(var.value);
       opt_datasette_sound_volume = val;
@@ -5909,9 +5860,7 @@ static void update_variables(void)
 #endif
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__) || defined(__XVIC__) || defined(__XPLUS4__)
-   var.key = "vice_audio_leak_emulation";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("audio_leak_emulation")
    {
       int audioleak = 0;
       opt_audio_leak_volume = atoi(var.value);
@@ -5931,17 +5880,13 @@ static void update_variables(void)
    }
 #endif
 
-   var.key = "vice_sound_sample_rate";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("sound_sample_rate")
    {
       vice_opt.SoundSampleRate = atoi(var.value);
    }
 
 #if defined(__XVIC__)
-   var.key = "vice_vic20_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("vic20_model")
    {
       int model = 0;
 
@@ -5965,9 +5910,7 @@ static void update_variables(void)
       vice_opt.Model = model;
    }
 
-   var.key = "vice_vic20_memory_expansions";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("vic20_memory_expansions")
    {
       int vic20mem = 0;
 
@@ -6021,9 +5964,7 @@ static void update_variables(void)
       vice_opt.VIC20Memory = vic20mem;
    }
 #elif defined(__XPLUS4__)
-   var.key = "vice_plus4_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("plus4_model")
    {
       int model = 0;
 
@@ -6043,9 +5984,7 @@ static void update_variables(void)
       vice_opt.Model = model;
    }
 #elif defined(__X128__)
-   var.key = "vice_c128_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("c128_model")
    {
       int model = 0;
       bool opt_model_auto_prev = opt_model_auto;
@@ -6075,9 +6014,7 @@ static void update_variables(void)
       vice_opt.Model = model;
    }
 
-   var.key = "vice_c128_ram_expansion_unit";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("c128_ram_expansion_unit")
    {
       int reusize = 0;
 
@@ -6101,9 +6038,7 @@ static void update_variables(void)
       opt_reu_allow = reu_allow(full_path);
    }
 
-   var.key = "vice_c128_video_output";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("c128_video_output")
    {
       int c128columnkey = 1;
 
@@ -6116,9 +6051,7 @@ static void update_variables(void)
       vice_opt.C128ColumnKey = c128columnkey;
    }
 
-   var.key = "vice_c128_vdc_ram";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("c128_vdc_ram")
    {
       int vdc64kb = 0;
 
@@ -6131,9 +6064,7 @@ static void update_variables(void)
       vice_opt.VDC64KB = vdc64kb;
    }
 
-   var.key = "vice_c128_go64";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("c128_go64")
    {
       int c128go64 = 0;
 
@@ -6156,9 +6087,7 @@ static void update_variables(void)
       vice_opt.Go64Mode = c128go64;
    }
 #elif defined(__XPET__)
-   var.key = "vice_pet_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("pet_model")
    {
       int model = 0;
 
@@ -6185,9 +6114,7 @@ static void update_variables(void)
       vice_opt.Model = model;
    }
 #elif defined(__XCBM2__)
-   var.key = "vice_cbm2_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("cbm2_model")
    {
       int model = 0;
 
@@ -6210,9 +6137,7 @@ static void update_variables(void)
       vice_opt.Model = model;
    }
 #elif defined(__XCBM5x0__)
-   var.key = "vice_cbm5x0_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("cbm5x0_model")
    {
       int model = 0;
 
@@ -6228,9 +6153,7 @@ static void update_variables(void)
       vice_opt.Model = model;
    }
 #elif defined(__X64DTV__)
-   var.key = "vice_c64dtv_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("c64dtv_model")
    {
       int model = 0;
 
@@ -6249,9 +6172,7 @@ static void update_variables(void)
       vice_opt.Model = model;
    }
 #else
-   var.key = "vice_c64_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("c64_model")
    {
       int model = 0;
       bool opt_model_auto_prev = opt_model_auto;
@@ -6287,9 +6208,7 @@ static void update_variables(void)
    }
 
 #if defined(__XSCPU64__)
-   var.key = "vice_supercpu_simm_size";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("supercpu_simm_size")
    {
       int simmsize = atoi(var.value);
 
@@ -6302,9 +6221,7 @@ static void update_variables(void)
       vice_opt.SIMMSize = simmsize;
    }
 #else
-   var.key = "vice_ram_expansion_unit";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("ram_expansion_unit")
    {
       int reusize = 0;
 
@@ -6331,9 +6248,7 @@ static void update_variables(void)
 #endif
 
 #if !defined(__XPET__) && !defined(__XPLUS4__) && !defined(__XVIC__)
-   var.key = "vice_sid_engine";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("sid_engine")
    {
       int sid_engine = SID_ENGINE_FASTSID;
 
@@ -6349,9 +6264,8 @@ static void update_variables(void)
       vice_opt.SidEngine = sid_engine;
    }
 
-   var.key = "vice_sid_model";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__X64DTV__)
+   GET_VAR("sid_model")
    {
       int sid_model = SID_MODEL_6581;
       switch (vice_opt.Model)
@@ -6381,9 +6295,7 @@ static void update_variables(void)
       vice_opt.SidModel = sid_model;
    }
 
-   var.key = "vice_sid_extra";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("sid_extra")
    {
       int sid_extra = atoi(var.value);
       if (strcmp(var.value, "disabled"))
@@ -6403,10 +6315,9 @@ static void update_variables(void)
 
       vice_opt.SidExtra = sid_extra;
    }
+#endif
 
-   var.key = "vice_resid_sampling";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("resid_sampling")
    {
       int val = 0;
 
@@ -6421,9 +6332,7 @@ static void update_variables(void)
       vice_opt.SidResidSampling = val;
    }
 
-   var.key = "vice_resid_passband";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("resid_passband")
    {
       int val = atoi(var.value);
 
@@ -6436,9 +6345,7 @@ static void update_variables(void)
       vice_opt.SidResidPassband = val;
    }
 
-   var.key = "vice_resid_gain";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("resid_gain")
    {
       int val = atoi(var.value);
 
@@ -6451,9 +6358,7 @@ static void update_variables(void)
       vice_opt.SidResidGain = val;
    }
 
-   var.key = "vice_resid_filterbias";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("resid_filterbias")
    {
       int val = atoi(var.value);
 
@@ -6463,10 +6368,8 @@ static void update_variables(void)
       vice_opt.SidResidFilterBias = val;
    }
 
-   var.key = "vice_resid_8580filterbias";
-   var.value = NULL;
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__X64DTV__)
+   GET_VAR("resid_8580filterbias")
    {
       int val = atoi(var.value);
 
@@ -6476,11 +6379,10 @@ static void update_variables(void)
       vice_opt.SidResid8580FilterBias = val;
    }
 #endif
+#endif
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X128__)
-   var.key = "vice_sfx_sound_expander";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("sfx_sound_expander")
    {
       int sfx_chip = atoi(var.value);
 
@@ -6500,9 +6402,7 @@ static void update_variables(void)
    }
 #endif
 
-   var.key = "vice_crop";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("crop")
    {
       if      (!strcmp(var.value, "disabled"))     crop_id = CROP_NONE;
       else if (!strcmp(var.value, "small"))        crop_id = CROP_SMALL;
@@ -6515,9 +6415,7 @@ static void update_variables(void)
       opt_crop_id = crop_id;
    }
 
-   var.key = "vice_crop_mode";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("crop_mode")
    {
       int crop_mode_id_prev = crop_mode_id;
 
@@ -6534,18 +6432,14 @@ static void update_variables(void)
          crop_id_prev = -1;
    }
 
-   var.key = "vice_crop_delay";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("crop_delay")
    {
       if (!strcmp(var.value, "disabled")) crop_delay = false;
       else                                crop_delay = true;
    }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__) || defined(__XVIC__) || defined(__XPLUS4__)
-   var.key = "vice_aspect_ratio";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("aspect_ratio")
    {
       int opt_aspect_ratio_prev = opt_aspect_ratio;
 
@@ -6564,36 +6458,31 @@ static void update_variables(void)
    }
 #endif
 
-   var.key = "vice_manual_crop_top";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("manual_crop_top")
    {
       int manual_crop_top_prev = manual_crop_top;
       manual_crop_top = atoi(var.value);
       if (manual_crop_top != manual_crop_top_prev)
          crop_id_prev = -1;
    }
-   var.key = "vice_manual_crop_bottom";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+
+   GET_VAR("manual_crop_bottom")
    {
       int manual_crop_bottom_prev = manual_crop_bottom;
       manual_crop_bottom = atoi(var.value);
       if (manual_crop_bottom != manual_crop_bottom_prev)
          crop_id_prev = -1;
    }
-   var.key = "vice_manual_crop_left";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+
+   GET_VAR("manual_crop_left")
    {
       int manual_crop_left_prev = manual_crop_left;
       manual_crop_left = atoi(var.value);
       if (manual_crop_left != manual_crop_left_prev)
          crop_id_prev = -1;
    }
-   var.key = "vice_manual_crop_right";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+
+   GET_VAR("manual_crop_right")
    {
       int manual_crop_right_prev = manual_crop_right;
       manual_crop_right = atoi(var.value);
@@ -6601,9 +6490,7 @@ static void update_variables(void)
          crop_id_prev = -1;
    }
 
-   var.key = "vice_gfx_colors";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("gfx_colors")
    {
       /* Only allow screenmode change after restart */
       if (!pix_bytes_initialized)
@@ -6614,9 +6501,7 @@ static void update_variables(void)
    }
 
 #if defined(__X128__)
-   var.key = "vice_vdc_filter";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("vdc_filter")
    {
       int filter = strcmp(var.value, "disabled");
       int blur = -1;
@@ -6640,16 +6525,14 @@ static void update_variables(void)
 #endif
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__)
-   var.key = "vice_vicii_filter";
+   GET_VAR("vicii_filter")
 #elif defined(__XVIC__)
-   var.key = "vice_vic_filter";
+   GET_VAR("vic_filter")
 #elif defined(__XPLUS4__)
-   var.key = "vice_ted_filter";
+   GET_VAR("ted_filter")
 #elif defined(__XPET__) || defined(__XCBM2__)
-   var.key = "vice_crtc_filter";
+   GET_VAR("crtc_filter")
 #endif
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int filter = strcmp(var.value, "disabled");
       int blur = -1;
@@ -6683,14 +6566,12 @@ static void update_variables(void)
    }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__)
-   var.key = "vice_vicii_filter_oddline_phase";
+   GET_VAR("vicii_filter_oddline_phase")
 #elif defined(__XVIC__)
-   var.key = "vice_vic_filter_oddline_phase";
+   GET_VAR("vic_filter_oddline_phase")
 #elif defined(__XPLUS4__)
-   var.key = "vice_ted_filter_oddline_phase";
+   GET_VAR("ted_filter_oddline_phase")
 #endif
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int oddline_phase = atoi(var.value);
 
@@ -6707,14 +6588,12 @@ static void update_variables(void)
    }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__)
-   var.key = "vice_vicii_filter_oddline_offset";
+   GET_VAR("vicii_filter_oddline_offset")
 #elif defined(__XVIC__)
-   var.key = "vice_vic_filter_oddline_offset";
+   GET_VAR("vic_filter_oddline_offset")
 #elif defined(__XPLUS4__)
-   var.key = "vice_ted_filter_oddline_offset";
+   GET_VAR("ted_filter_oddline_offset")
 #endif
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int oddline_offset = atoi(var.value);
 
@@ -6731,9 +6610,7 @@ static void update_variables(void)
    }
 
 #if defined(__XVIC__)
-   var.key = "vice_vic20_external_palette";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("vic20_external_palette")
    {
       if (retro_ui_finalized && strcmp(var.value, vice_opt.ExternalPalette))
       {
@@ -6749,9 +6626,7 @@ static void update_variables(void)
       sprintf(vice_opt.ExternalPalette, "%s", var.value);
    }
 #elif defined(__XPLUS4__)
-   var.key = "vice_plus4_external_palette";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("plus4_external_palette")
    {
       if (retro_ui_finalized && strcmp(var.value, vice_opt.ExternalPalette))
       {
@@ -6767,9 +6642,7 @@ static void update_variables(void)
       sprintf(vice_opt.ExternalPalette, "%s", var.value);
    }
 #elif defined(__XPET__)
-   var.key = "vice_pet_external_palette";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("pet_external_palette")
    {
       if (retro_ui_finalized && strcmp(var.value, vice_opt.ExternalPalette))
       {
@@ -6785,9 +6658,7 @@ static void update_variables(void)
       sprintf(vice_opt.ExternalPalette, "%s", var.value);
    }
 #elif defined(__XCBM2__)
-   var.key = "vice_cbm2_external_palette";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("cbm2_external_palette")
    {
       if (retro_ui_finalized && strcmp(var.value, vice_opt.ExternalPalette))
       {
@@ -6802,10 +6673,8 @@ static void update_variables(void)
 
       sprintf(vice_opt.ExternalPalette, "%s", var.value);
    }
-#else
-   var.key = "vice_external_palette";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#elif !defined(__X64DTV__)
+   GET_VAR("external_palette")
    {
       if (retro_ui_finalized && strcmp(var.value, vice_opt.ExternalPalette))
       {
@@ -6824,14 +6693,12 @@ static void update_variables(void)
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__) || defined(__XVIC__) || defined(__XPLUS4__)
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__)
-   var.key = "vice_vicii_color_gamma";
+   GET_VAR("vicii_color_gamma")
 #elif defined(__XVIC__)
-   var.key = "vice_vic_color_gamma";
+   GET_VAR("vic_color_gamma")
 #elif defined(__XPLUS4__)
-   var.key = "vice_ted_color_gamma";
+   GET_VAR("ted_color_gamma")
 #endif
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int color_gamma = atoi(var.value);
 
@@ -6851,14 +6718,12 @@ static void update_variables(void)
    }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__)
-   var.key = "vice_vicii_color_tint";
+   GET_VAR("vicii_color_tint")
 #elif defined(__XVIC__)
-   var.key = "vice_vic_color_tint";
+   GET_VAR("vic_color_tint")
 #elif defined(__XPLUS4__)
-   var.key = "vice_ted_color_tint";
+   GET_VAR("ted_color_tint")
 #endif
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int color_tint = atoi(var.value);
 
@@ -6875,14 +6740,12 @@ static void update_variables(void)
    }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__)
-   var.key = "vice_vicii_color_saturation";
+   GET_VAR("vicii_color_saturation")
 #elif defined(__XVIC__)
-   var.key = "vice_vic_color_saturation";
+   GET_VAR("vic_color_saturation")
 #elif defined(__XPLUS4__)
-   var.key = "vice_ted_color_saturation";
+   GET_VAR("ted_color_saturation")
 #endif
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int color_saturation = atoi(var.value);
 
@@ -6899,14 +6762,12 @@ static void update_variables(void)
    }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__)
-   var.key = "vice_vicii_color_contrast";
+   GET_VAR("vicii_color_contrast")
 #elif defined(__XVIC__)
-   var.key = "vice_vic_color_contrast";
+   GET_VAR("vic_color_contrast")
 #elif defined(__XPLUS4__)
-   var.key = "vice_ted_color_contrast";
+   GET_VAR("ted_color_contrast")
 #endif
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int color_contrast = atoi(var.value);
 
@@ -6923,14 +6784,12 @@ static void update_variables(void)
    }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__)
-   var.key = "vice_vicii_color_brightness";
+   GET_VAR("vicii_color_brightness")
 #elif defined(__XVIC__)
-   var.key = "vice_vic_color_brightness";
+   GET_VAR("vic_color_brightness")
 #elif defined(__XPLUS4__)
-   var.key = "vice_ted_color_brightness";
+   GET_VAR("ted_color_brightness")
 #endif
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int color_brightness = atoi(var.value);
 
@@ -6948,9 +6807,7 @@ static void update_variables(void)
 #endif
 
 #if !defined(__XCBM5x0__)
-   var.key = "vice_userport_joytype";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("userport_joytype")
    {
       int userportjoytype = -1;
 
@@ -6980,9 +6837,7 @@ static void update_variables(void)
 #endif
 
 #if !defined(__XPET__) && !defined(__XCBM2__) && !defined(__XVIC__)
-   var.key = "vice_joyport";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("joyport")
    {
       if      (!strcmp(var.value, "1") && !cur_port_locked) cur_port = 1;
       else if (!strcmp(var.value, "2") && !cur_port_locked) cur_port = 2;
@@ -6990,20 +6845,20 @@ static void update_variables(void)
 #endif
 
 #if !defined(__XPET__) && !defined(__XCBM2__)
-   var.key = "vice_joyport_type";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("joyport_type")
    {
       opt_joyport_type = atoi(var.value);
+
+      opt_joyport_paddles_split = true;
+      if (!strcmp(var.value, "2R"))
+         opt_joyport_paddles_split = false;
 
       /* Light guns/pens only possible in port 1 */
       if (opt_joyport_type > 10)
          cur_port = 1;
    }
 
-   var.key = "vice_joyport_pointer_color";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("joyport_pointer_color")
    {
       if      (!strcmp(var.value, "disabled")) opt_joyport_pointer_color = -1;
       else if (!strcmp(var.value, "black"))    opt_joyport_pointer_color = 0;
@@ -7016,9 +6871,7 @@ static void update_variables(void)
       else if (!strcmp(var.value, "purple"))   opt_joyport_pointer_color = 7;
    }
 
-   var.key = "vice_analogmouse";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("analogmouse")
    {
       if      (!strcmp(var.value, "disabled")) opt_analogmouse = 0;
       else if (!strcmp(var.value, "left"))     opt_analogmouse = 1;
@@ -7026,44 +6879,32 @@ static void update_variables(void)
       else if (!strcmp(var.value, "both"))     opt_analogmouse = 3;
    }
 
-   var.key = "vice_analogmouse_deadzone";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("analogmouse_deadzone")
    {
       opt_analogmouse_deadzone = atoi(var.value);
    }
 
-   var.key = "vice_analogmouse_speed";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("analogmouse_speed")
    {
       opt_analogmouse_speed_left = atof(var.value);
    }
 
-   var.key = "vice_analogmouse_speed_right";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("analogmouse_speed_right")
    {
       opt_analogmouse_speed_right = atof(var.value);
    }
 
-   var.key = "vice_dpadmouse_speed";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("dpadmouse_speed")
    {
       opt_dpadmouse_speed = atoi(var.value);
    }
 
-   var.key = "vice_mouse_speed";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mouse_speed")
    {
       opt_mouse_speed = atoi(var.value);
    }
 
-   var.key = "vice_retropad_options";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("retropad_options")
    {
       if      (!strcmp(var.value, "disabled"))    opt_retropad_options = RETROPAD_OPTIONS_DISABLED;
       else if (!strcmp(var.value, "rotate"))      opt_retropad_options = RETROPAD_OPTIONS_ROTATE;
@@ -7071,17 +6912,13 @@ static void update_variables(void)
       else if (!strcmp(var.value, "rotate_jump")) opt_retropad_options = RETROPAD_OPTIONS_ROTATE_JUMP;
    }
 
-   var.key = "vice_keyrah_keypad_mappings";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("keyrah_keypad_mappings")
    {
       if (!strcmp(var.value, "disabled")) opt_keyrah_keypad = false;
       else                                opt_keyrah_keypad = true;
    }
 
-   var.key = "vice_turbo_fire";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("turbo_fire")
    {
       if (!turbo_fire_locked)
       {
@@ -7090,9 +6927,7 @@ static void update_variables(void)
       }
    }
 
-   var.key = "vice_turbo_fire_button";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("turbo_fire_button")
    {
       if      (!strcmp(var.value, "B"))  turbo_fire_button = RETRO_DEVICE_ID_JOYPAD_B;
       else if (!strcmp(var.value, "A"))  turbo_fire_button = RETRO_DEVICE_ID_JOYPAD_A;
@@ -7104,18 +6939,14 @@ static void update_variables(void)
       else if (!strcmp(var.value, "R2")) turbo_fire_button = RETRO_DEVICE_ID_JOYPAD_R2;
    }
 
-   var.key = "vice_turbo_pulse";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("turbo_pulse")
    {
       turbo_pulse = atoi(var.value);
    }
 #endif
 
 #if !defined(__XPET__) && !defined(__XCBM2__) && !defined(__XCBM5x0__)
-   var.key = "vice_keyboard_keymap";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("keyboard_keymap")
    {
       int val = opt_keyboard_keymap;
 
@@ -7129,27 +6960,23 @@ static void update_variables(void)
    }
 #endif
 
-   var.key = "vice_physical_keyboard_pass_through";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("physical_keyboard_pass_through")
    {
       if (!strcmp(var.value, "disabled")) opt_keyboard_pass_through = false;
       else                                opt_keyboard_pass_through = true;
    }
 
-   var.key = "vice_reset";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#if !defined(__X64DTV__)
+   GET_VAR("reset")
    {
       if      (!strcmp(var.value, "autostart")) opt_reset_type = 0;
       else if (!strcmp(var.value, "soft"))      opt_reset_type = 1;
       else if (!strcmp(var.value, "hard"))      opt_reset_type = 2;
       else if (!strcmp(var.value, "freeze"))    opt_reset_type = 3;
    }
+#endif
 
-   var.key = "vice_vkbd_theme";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("vkbd_theme")
    {
       if      (strstr(var.value, "auto"))    opt_vkbd_theme = 0;
       else if (strstr(var.value, "brown"))   opt_vkbd_theme = 1;
@@ -7160,9 +6987,7 @@ static void update_variables(void)
       if      (strstr(var.value, "outline")) opt_vkbd_theme |= 0x80;
    }
 
-   var.key = "vice_vkbd_transparency";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("vkbd_transparency")
    {
       if      (!strcmp(var.value, "0%"))   opt_vkbd_alpha = GRAPH_ALPHA_100;
       else if (!strcmp(var.value, "25%"))  opt_vkbd_alpha = GRAPH_ALPHA_75;
@@ -7171,9 +6996,7 @@ static void update_variables(void)
       else if (!strcmp(var.value, "100%")) opt_vkbd_alpha = GRAPH_ALPHA_0;
    }
 
-   var.key = "vice_vkbd_dimming";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("vkbd_dimming")
    {
       if      (!strcmp(var.value, "0%"))   opt_vkbd_dim_alpha = GRAPH_ALPHA_0;
       else if (!strcmp(var.value, "25%"))  opt_vkbd_dim_alpha = GRAPH_ALPHA_25;
@@ -7182,9 +7005,7 @@ static void update_variables(void)
       else if (!strcmp(var.value, "100%")) opt_vkbd_dim_alpha = GRAPH_ALPHA_100;
    }
 
-   var.key = "vice_statusbar";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("statusbar")
    {
       opt_statusbar = 0;
 
@@ -7195,9 +7016,7 @@ static void update_variables(void)
       if (strstr(var.value, "minimal")) opt_statusbar |= STATUSBAR_MINIMAL;
    }
 
-   var.key = "vice_statusbar_startup";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("statusbar_startup")
    {
       if (!retro_ui_finalized)
       {
@@ -7208,41 +7027,31 @@ static void update_variables(void)
       }
    }
 
-   var.key = "vice_statusbar_messages";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("statusbar_messages")
    {
       if (!strcmp(var.value, "enabled"))
          opt_statusbar |= STATUSBAR_MESSAGES;
    }
 
-   var.key = "vice_mapping_options_display";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapping_options_display")
    {
       if (!strcmp(var.value, "disabled")) opt_mapping_options_display = 0;
       else                                opt_mapping_options_display = 1;
    }
 
-   var.key = "vice_audio_options_display";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("audio_options_display")
    {
       if (!strcmp(var.value, "disabled")) opt_audio_options_display = 0;
       else                                opt_audio_options_display = 1;
    }
 
-   var.key = "vice_video_options_display";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("video_options_display")
    {
       if (!strcmp(var.value, "disabled")) opt_video_options_display = 0;
       else                                opt_video_options_display = 1;
    }
 
-   var.key = "vice_read_vicerc";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("read_vicerc")
    {
       int opt_read_vicerc_prev = opt_read_vicerc;
       if (!strcmp(var.value, "disabled")) opt_read_vicerc = 0;
@@ -7253,9 +7062,7 @@ static void update_variables(void)
    }
 
 #if defined(__XSCPU64__)
-   var.key = "vice_supercpu_speed_switch";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("supercpu_speed_switch")
    {
       int speedswitch = 0;
       if (!strcmp(var.value, "enabled")) speedswitch = 1;
@@ -7266,9 +7073,7 @@ static void update_variables(void)
       vice_opt.SpeedSwitch = speedswitch;
    }
 
-   var.key = "vice_supercpu_kernal";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("supercpu_kernal")
    {
       int opt_supercpu_kernal_prev = opt_supercpu_kernal;
       opt_supercpu_kernal = atoi(var.value);
@@ -7279,9 +7084,7 @@ static void update_variables(void)
 #endif
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X128__) || defined(__XSCPU64__)
-   var.key = "vice_jiffydos";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("jiffydos")
    {
       int opt_jiffydos_prev = opt_jiffydos;
       if (!strcmp(var.value, "disabled")) opt_jiffydos = false;
@@ -7300,9 +7103,7 @@ static void update_variables(void)
 #endif
 
 #if !defined(__X64DTV__)
-   var.key = "vice_printer";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("printer")
    {
       if (!strcmp(var.value, "disabled")) vice_opt.Printer = 0;
       else                                vice_opt.Printer = 1;
@@ -7311,376 +7112,216 @@ static void update_variables(void)
 
    /* Mapper */
    /* RetroPad */
-   var.key = "vice_mapper_up";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_up")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_UP] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_down";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_down")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_DOWN] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_left";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_left")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_LEFT] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_right";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_right")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_RIGHT] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_select";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_select")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_SELECT] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_start";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_start")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_START] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_b";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_b")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_B] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_a";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_a")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_A] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_y";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_y")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_Y] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_x";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_x")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_X] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_l";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_l")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_L] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_r";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_r")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_R] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_l2";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_l2")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_L2] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_r2";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_r2")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_R2] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_l3";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_l3")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_L3] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_r3";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_r3")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_R3] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_lr";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_lr")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_LR] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_ll";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_ll")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_LL] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_ld";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_ld")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_LD] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_lu";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_lu")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_LU] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_rr";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_rr")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_RR] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_rl";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_rl")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_RL] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_rd";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_rd")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_RD] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_ru";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_ru")
    {
       mapper_keys[RETRO_DEVICE_ID_JOYPAD_RU] = retro_keymap_id(var.value);
    }
 
    /* Hotkeys */
-   var.key = "vice_mapper_vkbd";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_vkbd")
    {
       mapper_keys[RETRO_MAPPER_VKBD] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_statusbar";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_statusbar")
    {
       mapper_keys[RETRO_MAPPER_STATUSBAR] = retro_keymap_id(var.value);
    }
 
 #if !defined(__XPET__) && !defined(__XCBM2__) && !defined(__XVIC__)
-   var.key = "vice_mapper_joyport_switch";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_joyport_switch")
    {
       mapper_keys[RETRO_MAPPER_JOYPORT] = retro_keymap_id(var.value);
    }
 #endif
 
-   var.key = "vice_mapper_reset";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_reset")
    {
       mapper_keys[RETRO_MAPPER_RESET] = retro_keymap_id(var.value);
    }
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__) || defined(__XCBM5x0__) || defined(__XVIC__) || defined(__XPLUS4__)
-   var.key = "vice_mapper_aspect_ratio_toggle";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_aspect_ratio_toggle")
    {
       mapper_keys[RETRO_MAPPER_ASPECT_RATIO] = retro_keymap_id(var.value);
    }
 #endif
 
-   var.key = "vice_mapper_crop_toggle";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_crop_toggle")
    {
       mapper_keys[RETRO_MAPPER_CROP] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_warp_mode";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_warp_mode")
    {
       mapper_keys[RETRO_MAPPER_WARP_MODE] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_turbo_fire_toggle";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_turbo_fire_toggle")
    {
       mapper_keys[RETRO_MAPPER_TURBO_FIRE] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_save_disk_toggle";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_save_disk_toggle")
    {
       mapper_keys[RETRO_MAPPER_SAVE_DISK] = retro_keymap_id(var.value);
    }
 
 #if !defined(__XSCPU64__) && !defined(__X64DTV__)
-   var.key = "vice_datasette_hotkeys";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("datasette_hotkeys")
    {
       if (!strcmp(var.value, "disabled")) datasette_hotkeys = false;
       else                                datasette_hotkeys = true;
    }
 
-   var.key = "vice_mapper_datasette_toggle_hotkeys";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_datasette_toggle_hotkeys")
    {
       mapper_keys[RETRO_MAPPER_DATASETTE_HOTKEYS] = retro_keymap_id(var.value);
    }
    
-   var.key = "vice_mapper_datasette_stop";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_datasette_stop")
    {
       mapper_keys[RETRO_MAPPER_DATASETTE_STOP] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_datasette_start";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_datasette_start")
    {
       mapper_keys[RETRO_MAPPER_DATASETTE_START] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_datasette_forward";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_datasette_forward")
    {
       mapper_keys[RETRO_MAPPER_DATASETTE_FORWARD] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_datasette_rewind";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_datasette_rewind")
    {
       mapper_keys[RETRO_MAPPER_DATASETTE_REWIND] = retro_keymap_id(var.value);
    }
 
-   var.key = "vice_mapper_datasette_reset";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   GET_VAR("mapper_datasette_reset")
    {
       mapper_keys[RETRO_MAPPER_DATASETTE_RESET] = retro_keymap_id(var.value);
    }
 #endif
 
+   /* Hide/show core options */
    retro_set_options_display();
-
-   /* Handle migration compatibility with old "zoom" */
-   bool request_update_variables      = false;
-   int legacy_zoom                    = -1;
-   int legacy_zoom_crop               = -1;
-   int legacy_zoom_toggle             = -1;
-   char legacy_zoom_string[20]        = {0};
-   char legacy_zoom_crop_string[20]   = {0};
-   char legacy_zoom_toggle_string[20] = {0};
-
-   var.key = "vice_zoom_mode";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if      (!strcmp(var.value, "disabled"))     legacy_zoom = CROP_NONE;
-      else if (!strcmp(var.value, "small"))        legacy_zoom = CROP_SMALL;
-      else if (!strcmp(var.value, "medium"))       legacy_zoom = CROP_MEDIUM;
-      else if (!strcmp(var.value, "maximum"))      legacy_zoom = CROP_MAXIMUM;
-      else if (!strcmp(var.value, "manual"))       legacy_zoom = CROP_MANUAL;
-      else if (!strcmp(var.value, "auto"))         legacy_zoom = CROP_AUTO;
-      else if (!strcmp(var.value, "auto_disable")) legacy_zoom = CROP_AUTO_DISABLE;
-
-      strlcpy(legacy_zoom_string, var.value, sizeof(legacy_zoom_string));
-   }
-
-   var.key = "vice_zoom_mode_crop";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if      (!strcmp(var.value, "both"))       legacy_zoom_crop = CROP_MODE_BOTH;
-      else if (!strcmp(var.value, "vertical"))   legacy_zoom_crop = CROP_MODE_VERTICAL;
-      else if (!strcmp(var.value, "horizontal")) legacy_zoom_crop = CROP_MODE_HORIZONTAL;
-      else if (!strcmp(var.value, "16:9"))       legacy_zoom_crop = CROP_MODE_16_9;
-      else if (!strcmp(var.value, "16:10"))      legacy_zoom_crop = CROP_MODE_16_10;
-      else if (!strcmp(var.value, "4:3"))        legacy_zoom_crop = CROP_MODE_4_3;
-      else if (!strcmp(var.value, "5:4"))        legacy_zoom_crop = CROP_MODE_5_4;
-
-      strlcpy(legacy_zoom_crop_string, var.value, sizeof(legacy_zoom_crop_string));
-   }
-
-   var.key = "vice_mapper_zoom_mode_toggle";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      legacy_zoom_toggle = retro_keymap_id(var.value);
-      strlcpy(legacy_zoom_toggle_string, var.value, sizeof(legacy_zoom_toggle_string));
-   }
-
-   if (legacy_zoom > CROP_NONE)
-   {
-      log_cb(RETRO_LOG_INFO, "Migrating 'zoom_mode' to 'crop'..\n");
-      set_variable("vice_crop", legacy_zoom_string);
-      request_update_variables = true;
-   }
-
-   if (legacy_zoom_crop > 0)
-   {
-      log_cb(RETRO_LOG_INFO, "Migrating 'zoom_mode_crop' to 'crop_mode'..\n");
-      set_variable("vice_crop_mode", legacy_zoom_crop_string);
-      request_update_variables = true;
-   }
-
-   if (legacy_zoom_toggle > 0)
-   {
-      log_cb(RETRO_LOG_INFO, "Migrating 'mapper_zoom_mode_toggle' to 'mapper_crop_toggle'..\n");
-      set_variable("vice_mapper_crop_toggle", legacy_zoom_toggle_string);
-      request_update_variables = true;
-   }
-
-   if (strcmp(legacy_zoom_string, "deprecated"))
-      set_variable("vice_zoom_mode", "deprecated");
-
-   if (strcmp(legacy_zoom_crop_string, "deprecated"))
-      set_variable("vice_zoom_mode_crop", "deprecated");
-
-   if (strcmp(legacy_zoom_toggle_string, "---"))
-      set_variable("vice_mapper_zoom_mode_toggle", "---");
-
-   updating_variables = false;
-   if (request_update_variables)
-      update_variables();
 }
 
 void emu_reset(int type)
@@ -8038,6 +7679,15 @@ void retro_init(void)
    if (!string_is_empty(retro_temp_directory) && path_is_directory(retro_temp_directory))
       remove_recurse(retro_temp_directory);
 
+   /* Use system directory for data files such as JiffyDOS and keymaps */
+   if (     !string_is_empty(retro_system_data_directory)
+         && retro_system_data_directory[0] != '.'
+         && !path_is_directory(retro_system_data_directory))
+   {
+      log_cb(RETRO_LOG_INFO, "Mkdir system data directory: \"%s\"\n", retro_system_data_directory);
+      archdep_mkdir(retro_system_data_directory, 0);
+   }
+
    /* Disk Control interface */
    dc = dc_create();
    unsigned dci_version = 0;
@@ -8053,10 +7703,6 @@ void retro_init(void)
    /* Core option display callback */
    struct retro_core_options_update_display_callback update_display_callback = {retro_update_display};
    environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK, &update_display_callback);
-
-   /* Keep as incomplete until rewind can be enabled at startup (snapshot size is 0 at that time) */
-   static uint64_t quirks = RETRO_SERIALIZATION_QUIRK_INCOMPLETE | RETRO_SERIALIZATION_QUIRK_MUST_INITIALIZE | RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE;
-   environ_cb(RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS, &quirks);
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL))
       libretro_supports_bitmasks = true;
@@ -8078,9 +7724,13 @@ void retro_deinit(void)
 {
 #if 0
    /* VICE shutdown
-    * Doing this will break static build reloads */
+    * FIXME: Doing this will break static build reloads */
    machine_shutdown();
 #endif
+
+   /* Clean ZIP temp */
+   if (!string_is_empty(retro_temp_directory) && path_is_directory(retro_temp_directory))
+      remove_recurse(retro_temp_directory);
 
    /* Clean Disc Control context */
    if (dc)
@@ -8089,7 +7739,7 @@ void retro_deinit(void)
    /* Clean dynamic cartridge info */
    free_vice_carts();
 
-   /* Free buffers uses by libretro-graph */
+   /* Free buffers used by libretro-graph */
    libretro_graph_free();
 
    /* Free audio buffer */
@@ -8217,7 +7867,8 @@ float retro_get_aspect_ratio(unsigned int width, unsigned int height, bool pixel
 void update_geometry(int mode)
 {
    struct retro_system_av_info system_av_info;
-   bool update_av_info = false;
+   bool update_av_info  = false;
+   bool update_geometry = true;
 
    defaultw = retrow;
    defaulth = retroh;
@@ -8261,8 +7912,8 @@ void update_geometry(int mode)
          int crop_border_width     = 0;
          int crop_border_height    = 0;
 
-         unsigned prev_crop_width  = retrow_crop;
-         unsigned prev_crop_height = retroh_crop;
+         int retrow_crop_prev      = retrow_crop;
+         int retroh_crop_prev      = retroh_crop;
 
          float crop_dar            = 0;
          float crop_par            = retro_get_aspect_ratio(0, 0, true);
@@ -8418,6 +8069,10 @@ void update_geometry(int mode)
          system_av_info.geometry.base_width   = retrow_crop;
          system_av_info.geometry.base_height  = retroh_crop;
          system_av_info.geometry.aspect_ratio = retro_get_aspect_ratio(retrow_crop, retroh_crop, false);
+
+         if (     retrow_crop_prev == retrow_crop
+               && retroh_crop_prev == retroh_crop)
+            update_geometry = false;
          break;
    }
 
@@ -8430,7 +8085,7 @@ void update_geometry(int mode)
          retro_get_system_av_info(&system_av_info);
          environ_cb(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &system_av_info);
       }
-      else
+      else if (update_geometry)
       {
          environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &system_av_info);
       }
@@ -8579,6 +8234,7 @@ void retro_run(void)
    {
       /* Load content was called while core was already running, just do a reset with autostart */
       runstate = RUNSTATE_RUNNING;
+      request_restart = true;
    }
    else if (runstate == RUNSTATE_RUNNING)
    {
@@ -8592,6 +8248,8 @@ void retro_run(void)
          prev_sound_sample_rate = vice_opt.SoundSampleRate;
 
          /* Ensure audio rendering is reinitialized on next use */
+         sound_state_changed = true;
+         retro_sound_keep_alive = false;
          sound_close();
 
          struct retro_system_av_info system_av_info;
@@ -8705,6 +8363,8 @@ void retro_run(void)
       maincpu_mainloop();
    retro_renderloop = 1;
    retro_now += 1000000 / retro_refresh;
+
+   retro_sound_keep_alive = false;
 
    /* LED interface */
    if (led_state_cb)
@@ -8883,17 +8543,15 @@ void retro_unload_game(void)
    file_system_detach_disk_all();
    file_system_detach_disk_shutdown();
 
-   dc_reset(dc);
-
-   /* Clean ZIP temp */
-   if (!string_is_empty(retro_temp_directory) && path_is_directory(retro_temp_directory))
-      remove_recurse(retro_temp_directory);
+   if (dc)
+      dc_reset(dc);
 
    free(autostartString);
    autostartString = NULL;
    free(autostartProgram);
    autostartProgram = NULL;
 
+   retro_sound_keep_alive = false;
    cur_port_locked = false;
    opt_aspect_ratio_locked = false;
    noautostart_locked = false;
@@ -8996,8 +8654,6 @@ static void retro_unserialize_post(void)
       vsync_set_warp_mode(0);
    /* Reset LED status */
    vice_led_state[RETRO_LED_POWER] = vice_led_state[RETRO_LED_DRIVE] = vice_led_state[RETRO_LED_TAPE] = 0;
-   /* Make rewinding sound less jarring */
-   sound_volume_counter_reset();
    /* Dismiss possible restart request */
    request_restart = false;
    /* Sync Disc Control index for D64 multidisks */
@@ -9075,6 +8731,11 @@ bool retro_unserialize(const void *data_, size_t size)
 {
    if (retro_ui_finalized)
    {
+      /* Must stop autostart, or prg content will continue autostarting
+       * after autosaved state is autoloaded on startup */
+      autostart_reset();
+      /* Don't stop and start audio on every frame while rewinding */
+      retro_sound_keep_alive = true;
       snapshot_stream = snapshot_memory_read_fopen(data_, size);
       int success = 0;
       interrupt_maincpu_trigger_trap(load_trap, (void *)&success);
