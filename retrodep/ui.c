@@ -73,11 +73,13 @@ extern unsigned int opt_supercpu_kernal;
 extern dc_storage* dc;
 extern bool retro_ui_finalized;
 extern bool opt_jiffydos;
-extern bool opt_autoloadwarp;
+extern unsigned int opt_autoloadwarp;
 extern char full_path[RETRO_PATH_MAX];
 extern char retro_system_data_directory[RETRO_PATH_MAX];
 extern bool log_resource_set;
 extern retro_log_printf_t log_cb;
+
+bool pending_AutostartTapeBasicLoad = false;
 
 static const cmdline_option_t cmdline_options[] = {
    { NULL }
@@ -345,8 +347,12 @@ int ui_init_finalize(void)
    /* Keyboard map */
    keyboard_init();
 
-   /* Mute sound at startup to hide 6581 ReSID init pop, and set back to 100 in retro_run() after 3 frames */
+   /* Mute sound at startup to hide 6581 ReSID init pop */
    resources_set_int("SoundVolume", 0);
+
+   /* M3U parsed non-basic tape load force */
+   if (pending_AutostartTapeBasicLoad)
+      log_resources_set_int("AutostartTapeBasicLoad", 0);
 
    /* Sensible defaults */
    log_resources_set_int("AutostartPrgMode", 1);
@@ -483,7 +489,7 @@ int ui_init_finalize(void)
    else
       log_resources_set_int("DriveSoundEmulation", 0);
 
-   if (vice_opt.DriveSoundEmulation && opt_autoloadwarp & AUTOLOADWARP_DISK && !(opt_autoloadwarp & AUTOLOADWARP_MUTE))
+   if (vice_opt.DriveSoundEmulation && (opt_autoloadwarp & AUTOLOADWARP_DISK) && !(opt_autoloadwarp & AUTOLOADWARP_MUTE))
       log_resources_set_int("DriveSoundEmulationVolume", 0);
 
    if ((!string_is_empty(dc->files[dc->index]) && strendswith(dc->files[dc->index], ".d81"))
@@ -496,23 +502,13 @@ int ui_init_finalize(void)
    else
       log_resources_set_int("DatasetteSound", 0);
 
-   if (vice_opt.DatasetteSound && opt_autoloadwarp & AUTOLOADWARP_TAPE && !(opt_autoloadwarp & AUTOLOADWARP_MUTE))
+   if (vice_opt.DatasetteSound && (opt_autoloadwarp & AUTOLOADWARP_TAPE) && !(opt_autoloadwarp & AUTOLOADWARP_MUTE))
       log_resources_set_int("DatasetteSound", 0);
 #endif
 
-#if defined(__X64__) || defined(__X64SC__) || defined(__X64DTV__) || defined(__X128__) || defined(__XSCPU64__)
-   log_resources_set_int("VICIIAudioLeak", vice_opt.AudioLeak);
+   log_resources_set_int(AUDIOLEAK_RESOURCE, vice_opt.AudioLeak);
    if (vice_opt.AudioLeak && opt_autoloadwarp && !(opt_autoloadwarp & AUTOLOADWARP_MUTE))
-      log_resources_set_int("VICIIAudioLeak", 0);
-#elif defined(__XVIC__)
-   log_resources_set_int("VICAudioLeak", vice_opt.AudioLeak);
-   if (vice_opt.AudioLeak && opt_autoloadwarp && !(opt_autoloadwarp & AUTOLOADWARP_MUTE))
-      log_resources_set_int("VICAudioLeak", 0);
-#elif defined(__XPLUS4__)
-   log_resources_set_int("TEDAudioLeak", vice_opt.AudioLeak);
-   if (vice_opt.AudioLeak && opt_autoloadwarp && !(opt_autoloadwarp & AUTOLOADWARP_MUTE))
-      log_resources_set_int("TEDAudioLeak", 0);
-#endif
+      log_resources_set_int(AUDIOLEAK_RESOURCE, 0);
 
 #if defined(__X64__) || defined(__X64SC__) || defined(__X128__)
    if (vice_opt.SFXSoundExpanderChip)

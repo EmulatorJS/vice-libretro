@@ -396,6 +396,7 @@ int tape_enabled = 0;
 int tape_control = 0;
 int tape_counter = 0;
 int tape_motor = 0;
+int tape_found_counter = 0;
 
 static void display_tape(void)
 {
@@ -409,10 +410,11 @@ static void display_tape(void)
 
     if (tape_enabled)
         snprintf(tmpstr, sizeof(tmpstr), "%c%03d", tape_chars[tape_control], tape_counter);
+    else
+        tape_found_counter = 0;
 
     /* Skip null terminator */
-    if (tmpstr[0])
-        strncpy(&statusbar_chars[STATUSBAR_TAPE_POS], tmpstr, sizeof(tmpstr)-1);
+    strncpy(&statusbar_chars[STATUSBAR_TAPE_POS], tmpstr, sizeof(tmpstr)-1);
 
     if (uistatusbar_state & UISTATUSBAR_ACTIVE) {
         uistatusbar_state |= UISTATUSBAR_REPAINT;
@@ -443,13 +445,12 @@ void ui_display_tape_control_status(int port, int control)
 void ui_display_tape_counter(int port, int counter)
 {
     if (tape_counter != counter) {
+        tape_counter = (counter < 1000) ? counter : 0;
         display_tape();
 
         if (tape_motor)
            tape_motor = 2;
     }
-
-    tape_counter = counter;
 }
 
 void ui_display_tape_current_image(int port, const char *image)
@@ -604,9 +605,16 @@ static void display_joyport(void)
         tmplen += snprintf(tmpstr + tmplen, sizeof(tmpstr) - tmplen, "J%d%3s ", 1, joystick_value_human(get_joystick_value(1-1), 0));
         tmplen += snprintf(tmpstr + tmplen, sizeof(tmpstr) - tmplen, "J%d%3s ", 2, joystick_value_human(get_joystick_value(2-1), 0));
     }
+    else
+    {
+        tmplen += snprintf(tmpstr + tmplen, sizeof(tmpstr) - tmplen, "%6s", "");
+        tmplen += snprintf(tmpstr + tmplen, sizeof(tmpstr) - tmplen, "%6s", "");
+    }
 #endif
 
+#if !defined(__XPET__) && !defined(__XCBM2__)
     if (vice_opt.UserportJoyType == -1)
+#endif
     {
         int offset_multi = ceil((retrow - retrow_crop + 8) / 16.0f);
         int offset = 7 - offset_multi;

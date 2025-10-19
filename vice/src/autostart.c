@@ -84,13 +84,9 @@
 #include "vsync.h"
 
 #ifdef __LIBRETRO__
-#include "keyboard.h"
-#include "libretro.h"
-#include "libretro-glue.h"
-#include "libretro-mapper.h"
-extern int tape_counter;
 extern unsigned int retro_warpmode;
-extern unsigned int opt_autostart;
+extern int tape_counter;
+extern int tape_found_counter;
 #endif
 
 #ifdef DEBUG_AUTOSTART
@@ -403,7 +399,11 @@ static resource_int_t resources_int_basicload[] = {
     { "AutostartBasicLoad", 0, RES_EVENT_NO, (resource_value_t)0,
       &autostart_basic_load, set_autostart_basic_load, NULL },
     /* caution: position is hardcoded below */
+#ifdef __LIBRETRO__
+    { "AutostartTapeBasicLoad", 1, RES_EVENT_NO, (resource_value_t)1,
+#else
     { "AutostartTapeBasicLoad", 0, RES_EVENT_NO, (resource_value_t)1,
+#endif
       &autostart_tape_basic_load, set_autostart_tape_basic_load, NULL },
     RESOURCE_INT_LIST_END
 };
@@ -1115,11 +1115,24 @@ static void advance_hastape(void)
                     tmp = lib_strdup("LOAD\"\",2\r");
                 }
             } else {
+#ifdef __LIBRETRO__
+                if (autostart_program_name) {
+                    tmp = util_concat("LOAD\"", autostart_program_name, "\"",
+                                    autostart_tape_basic_load ? "" : ",1,1", "\r", NULL);
+                } else {
+                    if (autostart_tape_basic_load) {
+                        tmp = lib_strdup("LOAD\r");
+                    } else {
+                        tmp = lib_strdup("LOAD\"\",1,1\r");
+                    }
+                }
+#else
                 if (autostart_program_name) {
                     tmp = util_concat("LOAD\"", autostart_program_name, "\"\r", NULL);
                 } else {
                     tmp = lib_strdup("LOAD\r");
                 }
+#endif
             }
             kbdbuf_feed(tmp);
             lib_free(tmp);
@@ -1157,11 +1170,6 @@ static void advance_loadingtape(void)
 {
     switch (check("READY.", AUTOSTART_WAIT_BLINK)) {
         case YES:
-#ifdef __LIBRETRO__
-            /* Kludge required for T64s */
-            if (opt_autostart && retro_key_state_internal[RETROK_LCTRL])
-               retro_key_up(RETROK_LCTRL);
-#endif
             disable_warp_if_was_requested();
             autostart_finish();
             autostart_done(); /* -> AUTOSTART_DONE */
@@ -1174,14 +1182,12 @@ static void advance_loadingtape(void)
             /* leave autostart and disable warp if ROM area was left */
             check_rom_area();
 #ifdef __LIBRETRO__
-            if (!opt_autostart || !tape_counter)
+            if (!tape_counter)
                 break;
-            if (retro_key_state_internal[RETROK_LCTRL] && tape_counter > 5 && tape_counter < 1000)
-                retro_key_up(RETROK_LCTRL);
             switch (check2("FOUND ", AUTOSTART_NOWAIT_BLINK, 0 , 0)) {
                 case YES:
-                    if (!retro_key_state_internal[RETROK_LCTRL])
-                        retro_key_down(RETROK_LCTRL);
+                    if (!tape_found_counter)
+                       tape_found_counter = tape_counter;
                     break;
                 default:
                     break;

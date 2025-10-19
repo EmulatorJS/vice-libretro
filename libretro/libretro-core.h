@@ -154,11 +154,13 @@ extern unsigned int opt_statusbar;
 extern unsigned int cur_port;
 extern unsigned int retro_region;
 extern int request_model_set;
+extern bool pending_AutostartTapeBasicLoad;
 
 extern int tape_enabled;
 extern int tape_counter;
 extern int tape_control;
 extern int tape_motor;
+extern int tape_found_counter;
 
 extern unsigned int retro_warpmode;
 extern int crop_id;
@@ -340,6 +342,8 @@ extern struct vice_core_options vice_opt;
 #define AUDIOLEAK_RESOURCE "VICAudioLeak"
 #elif defined(__XPLUS4__)
 #define AUDIOLEAK_RESOURCE "TEDAudioLeak"
+#elif defined(__XPET__) || defined(__XCBM2__)
+#define AUDIOLEAK_RESOURCE "CrtcAudioLeak"
 #endif
 
 struct vice_raster_s
